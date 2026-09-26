@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+data/*
+!data/.gitkeep
+!data/replay_fixtures/
+dashboard/node_modules/
+dashboard/.next/
+.DS_Store
+*.egg-info/
+.vercel
+Claude outputs/
