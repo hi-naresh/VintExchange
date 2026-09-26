@@ -17,6 +17,7 @@ from app.agents.protocol import LLMClient, LLMError, LLMOutputError, QuotePropos
 from app.config import Settings
 from app.domain.models import (
     OPEN_REQUEST_STATUSES,
+    AmendCommand,
     CounterCreate,
     InventoryRecord,
     MerchantRecord,
@@ -104,7 +105,8 @@ class OrchestrationService:
         mandate = await self.repository.get_active_mandate()
         if mandate is None:
             raise PolicyRejected(PolicyDecision.reject(PolicyCode.NO_ACTIVE_MANDATE))
-        request = await self.repository.create_request(command, mandate_id=mandate.id)
+        request = await self.repository.create_request(command, mandate_id=mandate.id,
+                                                       agent=agent)
         await self.recorder.emit("request_created", request_id=request.id,
                                  query=request.query, category=request.category,
                                  max_price_pence=request.max_price_pence,
@@ -358,6 +360,26 @@ class OrchestrationService:
         )
 
     # --------------------------------------------------------------- tool endpoints
+
+    async def amend(self, request_id: str, command: AmendCommand,
+                    agent: str | None = None) -> RequestRecord:
+        """Change a waiting order's limit or quantity. Filled orders can't change."""
+        current = await self.repository.get_request(request_id)
+        if current is None:
+            raise NotFound("request", request_id)
+        quantity = command.quantity or current.quantity
+        if command.max_price_pence is not None:
+            max_total = command.max_price_pence
+        else:  # keep the same price per piece when only the quantity changes
+            max_total = (current.max_price_pence // current.quantity) * quantity
+        request = await self.repository.amend_request(request_id, max_price_pence=max_total,
+                                                      quantity=quantity)
+        if request is None:
+            raise PolicyRejected(PolicyDecision.reject(PolicyCode.REQUEST_CLOSED), request_id)
+        await self.recorder.emit("request_amended", request_id=request_id, agent=agent,
+                                 max_price_pence=request.max_price_pence,
+                                 quantity=request.quantity)
+        return request
 
     async def cancel(self, request_id: str, agent: str | None = None) -> RequestRecord:
         """Cancel an open or resting request. A fill that already won stays filled."""

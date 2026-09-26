@@ -1,4 +1,4 @@
--- Trading Agentic Commerce SQLite schema. Money is integer pence. Timestamps are fixed-width
+-- Vint Exchange SQLite schema. Money is integer pence. Timestamps are fixed-width
 -- UTC ISO strings (YYYY-MM-DDTHH:MM:SS.ffffffZ) so they compare lexicographically.
 
 CREATE TABLE IF NOT EXISTS mandates (
@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS requests (
                         'resting', 'reserved', 'paid', 'rejected', 'out_of_stock',
                         'cancelled')),
     round           INTEGER NOT NULL DEFAULT 0 CHECK (round >= 0 AND round <= 3),
+    agent           TEXT,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );

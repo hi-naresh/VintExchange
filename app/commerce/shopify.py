@@ -197,13 +197,13 @@ class ShopifyDraftOrderSink:
             line["appliedDiscount"] = {
                 "value": float(Decimal(discount_per_unit) / 100),
                 "valueType": "FIXED_AMOUNT",
-                "title": "Negotiated by Trading Agentic Commerce",
+                "title": "Negotiated by Vint Exchange",
             }
         payload = {
             "query": DRAFT_ORDER_MUTATION,
             "variables": {"input": {
                 "lineItems": [line],
-                "note": (f"Trading Agentic Commerce order {order.id}: agent-negotiated at "
+                "note": (f"Vint Exchange order {order.id}: agent-negotiated at "
                          f"{format_pence(order.price_pence)} per unit. Payment simulated."),
                 "tags": ["trading-agentic-commerce", "agentic-commerce", "simulated-payment"],
             }},

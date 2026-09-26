@@ -391,3 +391,28 @@ async def test_busy_market_with_many_agents_never_overspends_or_oversells(fleek_
         assert item.stock >= 0
     rogue = next(b for b in summary["buyers"] if "Rogue" in b["agent"])
     assert rogue["status"] == "rejected"
+
+
+async def test_amend_raises_limit_and_fills_at_best_price(fleek_services):
+    from app.domain.models import AmendCommand
+
+    s = fleek_services
+    rested = await s.orchestrator.submit_text("50 grade-A vintage denim jackets under £18 each")
+    amended = await s.orchestrator.amend(rested.request.id, AmendCommand(max_price_pence=93_000))
+    assert amended.max_price_pence == 93_000
+    order_id = await s.repricing.fill_if_crossed(rested.request.id)
+    assert order_id is not None
+    order = await s.repository.get_order(order_id)
+    assert order.price_pence == 1_860  # best current ask, not the new limit
+
+
+async def test_amend_quantity_keeps_price_each_and_filled_orders_are_locked(fleek_services):
+    from app.domain.models import AmendCommand
+
+    s = fleek_services
+    rested = await s.orchestrator.submit_text("50 grade-A vintage denim jackets under £18 each")
+    amended = await s.orchestrator.amend(rested.request.id, AmendCommand(quantity=20))
+    assert (amended.quantity, amended.max_price_pence) == (20, 36_000)
+    filled = await s.orchestrator.submit_text("10 grade-A vintage denim jackets under £20 each")
+    with pytest.raises(PolicyRejected):
+        await s.orchestrator.amend(filled.request.id, AmendCommand(quantity=5))

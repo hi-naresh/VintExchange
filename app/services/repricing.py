@@ -16,6 +16,7 @@ from app.domain.models import (
     QuoteStatus,
     RepriceCommand,
     RepriceOutcome,
+    RequestStatus,
 )
 from app.market.protocol import MarketPriceProvider
 from app.repositories.protocol import NotFound, Repository, RepositoryConflict
@@ -30,6 +31,40 @@ class RepricingService:
         self.commerce = commerce
         self.recorder = recorder
         self.market = market
+
+    async def fill_if_crossed(self, request_id: str) -> str | None:
+        """After a buyer raises a limit: fill at the best current price if it now fits.
+
+        Returns the order id on a fill. Uses the same policy + transaction path.
+        """
+        request = await self.repository.get_request(request_id)
+        mandate = await self.repository.get_active_mandate()
+        if request is None or mandate is None or request.status is not RequestStatus.RESTING:
+            return None
+        items = [i for i in await self.repository.list_inventory(request.category,
+                                                                  in_stock_only=True)
+                 if i.merchant_id in mandate.allowed_merchant_ids
+                 and i.stock >= request.quantity
+                 and i.list_price_pence * request.quantity <= request.max_price_pence]
+        if not items:
+            return None
+        best = min(items, key=lambda i: (i.list_price_pence, i.delivery_days))
+        quote = await self.repository.create_quote(
+            QuoteCreate(request_id=request.id, merchant_id=best.merchant_id,
+                        inventory_id=best.id, price_pence=best.list_price_pence,
+                        delivery_days=best.delivery_days, round=max(1, request.round)),
+            status=QuoteStatus.VALID, rejection_reason=None, origin=QuoteOrigin.REPRICE,
+        )
+        result = await self.commerce.execute(
+            request.id, quote.id, f"amend:{request.id}:{best.id}:{best.list_price_pence}")
+        if result.accepted and result.order is not None:
+            await self.recorder.emit("limit_fill", request_id=request.id,
+                                     order_id=result.order.id, inventory_id=best.id,
+                                     price_pence=best.list_price_pence)
+            return result.order.id
+        await self.recorder.emit("limit_skip", request_id=request.id,
+                                 code=result.decision.code.value, inventory_id=best.id)
+        return None
 
     async def reprice(self, merchant_id: str, command: RepriceCommand) -> RepriceOutcome:
         item = await self.repository.get_inventory_item(command.inventory_id)

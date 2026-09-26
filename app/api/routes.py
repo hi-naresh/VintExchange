@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, Query
 
 from app.api.dependencies import get_services
 from app.domain.models import (
+    AmendCommand,
     CheckoutCommand,
     CheckoutResult,
     CounterCreate,
@@ -17,6 +18,8 @@ from app.domain.models import (
     KillCommand,
     MandateCreate,
     MandateRecord,
+    PolicyCode,
+    PolicyDecision,
     PolicyRejected,
     QuoteCreate,
     QuoteRecord,
@@ -28,6 +31,7 @@ from app.domain.models import (
     RequestStatus,
     ReservationResult,
     ReserveCommand,
+    RestockCommand,
     RFQCreate,
     TextRFQ,
 )
@@ -88,12 +92,65 @@ async def cancel_request(
     return await services.orchestrator.cancel(request_id, agent=x_agent_name)
 
 
+@router.post("/requests/{request_id}/amend", response_model=RequestOutcome, tags=["buyer"])
+async def amend_request(
+    request_id: str, command: AmendCommand, services: ServicesDep,
+    x_agent_name: Annotated[str | None, Header(max_length=60)] = None,
+) -> RequestOutcome:
+    """Change a waiting order's limit or quantity; it fills at once if it now crosses."""
+    await services.orchestrator.amend(request_id, command, agent=x_agent_name)
+    await services.repricing.fill_if_crossed(request_id)
+    request = await services.repository.get_request(request_id)
+    assert request is not None
+    order = next((o for o in (await services.repository.dashboard_snapshot()).orders
+                  if o.request_id == request_id), None)
+    return RequestOutcome(request=request,
+                          quotes=await services.repository.list_quotes(request_id),
+                          events=list(reversed(await services.repository.list_events(
+                              request_id))),
+                          order=order)
+
+
 @router.post("/simulate/market", tags=["demo"])
 async def simulate_market(services: ServicesDep) -> dict[str, Any]:
     """Several buyer agents trade at once under one mandate, then a merchant flash sale."""
     from app.services.simulation import run_market
 
     return await run_market(services)
+
+
+@router.post("/simulate/arena", tags=["demo"])
+async def simulate_arena(services: ServicesDep) -> dict[str, Any]:
+    """Run a fresh isolated fixed-budget market; no external orders are created."""
+    from app.services.simulation import run_arena
+
+    return await run_arena(services)
+
+
+@router.get("/orderbook/{category}", tags=["market"])
+async def order_book(category: str, services: ServicesDep) -> dict[str, Any]:
+    """Live book for one category: waiting buyer bids vs merchant asks, per piece."""
+    snapshot = await services.repository.dashboard_snapshot(services.settings.profile)
+    open_statuses = {"requested", "quoted", "negotiating", "resting"}
+    bids = sorted(
+        ({"request_id": r.id, "price_each_pence": r.max_price_pence // r.quantity,
+          "quantity": r.quantity, "agent": r.agent, "since": r.created_at}
+         for r in snapshot.requests
+         if r.category == category and r.status.value in open_statuses),
+        key=lambda b: (-b["price_each_pence"], b["since"]))
+    asks = sorted(
+        ({"inventory_id": i.id, "merchant_id": i.merchant_id, "title": i.title,
+          "price_each_pence": i.list_price_pence, "stock": i.stock}
+         for i in snapshot.inventory if i.category == category and i.stock > 0),
+        key=lambda a: a["price_each_pence"])
+    items = {i.id for i in snapshot.inventory if i.category == category}
+    trades = [{"order_id": o.id, "inventory_id": o.inventory_id, "quantity": o.quantity,
+               "price_each_pence": o.price_pence, "at": o.created_at}
+              for o in snapshot.orders if o.inventory_id in items and o.status.value == "paid"]
+    spread = (asks[0]["price_each_pence"] - bids[0]["price_each_pence"]
+              if asks and bids else None)
+    return {"category": category, "bids": bids, "asks": asks, "spread_pence": spread,
+            "trades": trades[:25], "payment_simulated": True}
 
 
 @router.get("/inventory", response_model=list[InventoryRecord], tags=["merchant"])
@@ -135,6 +192,21 @@ async def checkout(command: CheckoutCommand, services: ServicesDep) -> CheckoutR
 async def reprice(merchant_id: str, command: RepriceCommand,
                   services: ServicesDep) -> RepriceOutcome:
     return await services.repricing.reprice(merchant_id, command)
+
+
+@router.post("/merchants/{merchant_id}/restock", response_model=InventoryRecord,
+             tags=["merchant"])
+async def restock(merchant_id: str, command: RestockCommand,
+                  services: ServicesDep) -> InventoryRecord:
+    item = await services.repository.get_inventory_item(command.inventory_id)
+    if item is None:
+        raise NotFound("inventory", command.inventory_id)
+    if item.merchant_id != merchant_id:
+        raise PolicyRejected(PolicyDecision.reject(PolicyCode.OWNERSHIP_MISMATCH))
+    item = await services.repository.add_stock(item.id, command.quantity)
+    await services.recorder.emit("restock", merchant_id=merchant_id, inventory_id=item.id,
+                                 quantity=command.quantity, stock=item.stock)
+    return item
 
 
 @router.get("/report/{order_id}", response_model=ExecReportRecord, tags=["reporting"])

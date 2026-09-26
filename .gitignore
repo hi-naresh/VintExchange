@@ -12,4 +12,7 @@ dashboard/.next/
 .DS_Store
 *.egg-info/
 .vercel
+
+# Local artefacts
 Claude outputs/
+data/replay_cache.json

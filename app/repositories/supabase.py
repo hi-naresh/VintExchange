@@ -198,14 +198,27 @@ class SupabaseRepository:
             raise RepositoryConflict("reprice rejected by floor guard")
         return InventoryRecord.model_validate(rows[0])
 
+    async def add_stock(self, inventory_id: str, quantity: int) -> InventoryRecord:
+        # Optimistic concurrency: only apply if stock is unchanged since the read.
+        for _ in range(5):
+            item = await self.get_inventory_item(inventory_id)
+            if item is None:
+                raise NotFound("inventory", inventory_id)
+            rows = await self._patch("inventory", {"stock": item.stock + quantity},
+                                     id=_eq(inventory_id), stock=f"eq.{item.stock}")
+            if rows:
+                return InventoryRecord.model_validate(rows[0])
+        raise RepositoryConflict("restock contended; retry")
+
     # ------------------------------------------------------------------ requests
 
-    async def create_request(self, command: RFQCreate, *, mandate_id: str) -> RequestRecord:
+    async def create_request(self, command: RFQCreate, *, mandate_id: str,
+                             agent: str | None = None) -> RequestRecord:
         row = await self._insert("requests", {
             "id": new_id("req"), "mandate_id": mandate_id, "query": command.query,
             "category": command.category, "max_price_pence": command.max_price_pence,
             "quantity": command.quantity, "deadline": iso(command.deadline),
-            "status": RequestStatus.REQUESTED.value, "round": 0,
+            "status": RequestStatus.REQUESTED.value, "round": 0, "agent": agent,
         })
         return RequestRecord.model_validate(row)
 
@@ -226,6 +239,18 @@ class SupabaseRepository:
         if current is None:
             raise NotFound("request", request_id)
         return current
+
+    async def amend_request(self, request_id: str, *, max_price_pence: int,
+                            quantity: int) -> RequestRecord | None:
+        rows = await self._patch(
+            "requests", {"max_price_pence": max_price_pence, "quantity": quantity,
+                         "updated_at": iso(utcnow())},
+            id=_eq(request_id), status="in.(requested,quoted,negotiating,resting)")
+        if rows:
+            return RequestRecord.model_validate(rows[0])
+        if await self.get_request(request_id) is None:
+            raise NotFound("request", request_id)
+        return None
 
     async def cancel_request(self, request_id: str) -> RequestRecord | None:
         rows = await self._patch(
@@ -438,11 +463,11 @@ class SupabaseRepository:
             merchants=await self.list_merchants(),
             inventory=await self.list_inventory(),
             requests=[RequestRecord.model_validate(r)
-                      for r in await self._select("requests", limit="50", **newest)],
+                      for r in await self._select("requests", limit="200", **newest)],
             quotes=[QuoteRecord.model_validate(r)
                     for r in await self._select("quotes", limit="150", **newest)],
             orders=[OrderRecord.model_validate(r)
-                    for r in await self._select("orders", limit="50", **newest)],
+                    for r in await self._select("orders", limit="150", **newest)],
             reports=[ExecReportRecord.model_validate(r)
                      for r in await self._select("exec_reports", limit="50", **newest)],
             events=await self.list_events(limit=400),

@@ -38,7 +38,7 @@ def headphone_rfq_json(max_pence: int = 17_000, category: str = "audio"):
 @pytest.fixture
 async def client(repository):
     settings = Settings(_env_file=None, merchant_timeout_seconds=0.5, demo_theme="electronics",
-                        cors_origins="https://grok-exchange.vercel.app")
+                        cors_origins="https://vintexchange.vercel.app")
     app = create_app(settings=settings, repository=repository, llm=FakeLLMClient(),
                      market=FakeMarketPriceProvider())
     transport = httpx.ASGITransport(app=app)
@@ -176,8 +176,8 @@ async def test_inventory_reference_health_and_bootstrap(client):
 
 async def test_cors_is_explicit_not_wildcard(client):
     allowed = await client.options("/dashboard", headers={
-        "Origin": "https://grok-exchange.vercel.app", "Access-Control-Request-Method": "GET"})
-    assert allowed.headers["access-control-allow-origin"] == "https://grok-exchange.vercel.app"
+        "Origin": "https://vintexchange.vercel.app", "Access-Control-Request-Method": "GET"})
+    assert allowed.headers["access-control-allow-origin"] == "https://vintexchange.vercel.app"
     denied = await client.options("/dashboard", headers={
         "Origin": "https://evil.example", "Access-Control-Request-Method": "GET"})
     assert "access-control-allow-origin" not in denied.headers

@@ -1,4 +1,8 @@
-# Trading Agentic Commerce
+# Vint Exchange
+
+**Start with the Agent arena:** one click runs a fresh isolated market, displays buyer and seller outcomes, and proves budget and stock accounting. [Judge walkthrough and limitations](docs/submission/README.md).
+
+`POST /simulate/arena` uses the configured agent mode with seeded stock, a fixed £2,000 shared mandate, simulated payment, and no external order writes. The default simulation fills 95 units for £1,976, saves £106 against quotes, and leaves £24.
 
 **Track: Agentic Commerce.** Demo theme: wholesale secondhand clothing lots, the
 Fleek model: a buyer asks for "50 grade-A vintage denim jackets under £18 each" and
@@ -47,7 +51,7 @@ The demo proves four things:
 
 ### Shopify setup (about 10 minutes)
 
-1. Create a Shopify dev store and import `shopify/products.csv` (Products → Import). It recreates the demo story: three vendors quote £166, £162 and £158, and Bassline's floor is £148.
+1. Create a Shopify dev store and import `shopify/products.csv` (Products → Import). It recreates the Fleek-style story: three suppliers list denim jackets at £19.80, £19.20 and £18.60 a piece, and Rag House London's floor is £17.60.
 2. Make sure the products are available on the **Headless** (or Online Store) sales channel.
 3. Create a Storefront API token with `unauthenticated_read_product_listings` and `unauthenticated_read_product_inventory`.
 4. Optional: create an Admin API token with `write_draft_orders` for draft-order mirroring.
@@ -90,12 +94,41 @@ merchant, stock, floor, request maximum, per-order cap, orders-per-minute, remai
 budget, then the web reference. A high-confidence reference blocks any quote above
 150% of it. Low-confidence and seeded references only add a risk flag.
 
+## API keys and settings
+
+Nothing is required: the offline demo runs with no keys. Add these to turn on each piece.
+
+| Variable | Needed for | Where to get it |
+|---|---|---|
+| `LLM_MODE=grok`, `GROK_API_KEY` | Live Grok agents (parsing, quoting, countering) | console.x.ai, API keys |
+| `GROK_MODEL` (optional, default `grok-4`) | Pick a different xAI model | console.x.ai, Models |
+| `POSTHOG_API_KEY`, `POSTHOG_HOST` | Funnels of every exchange event | PostHog, Project settings, Project API key (`phc_…`); host `https://eu.i.posthog.com` for EU projects |
+| `CATALOG_SOURCE=shopify`, `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_STOREFRONT_TOKEN` | Real Shopify catalogue | Shopify admin, Settings, Apps, Develop apps, Storefront API token |
+| `SHOPIFY_ADMIN_TOKEN` | Fills mirrored as Shopify draft orders | Same app, Admin API token with `write_draft_orders` |
+| `MARKET_MODE=tavily`, `TAVILY_API_KEY` | Live UK web reference prices | app.tavily.com |
+| `PROFILE=connected`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY` | Postgres ledger + Realtime (also needs `GROK_API_KEY`) | Supabase, Project settings, API keys |
+| `CORS_ORIGINS` | Only if another site calls the API | Your dashboard URL |
+| `TAKE_RATE_BPS` (default 150) | Exchange fee shown to merchants | Business setting |
+| `DEMO_THEME` (default `fleek`) | `fleek` wholesale lots or `electronics` | — |
+
+## Live traffic (agents firing orders)
+
+```bash
+python -m scripts.traffic                                   # against localhost:8000
+python -m scripts.traffic --url https://YOUR-APP.vercel.app --interval 4 --agents 1
+```
+
+Named buyer agents place orders, cancel some, merchants reprice and restock, and a
+rogue agent tries to break the rules. Watch it in the **Order book** tab: live bids
+vs asks per piece, the spread, the trade tape with exchange fees, and fills per
+minute. The script preserves the existing mandate and kill switch. Budget replenishment requires the explicit `--replenish-budget` demo flag.
+
 ## Quick start (offline, no secrets)
 
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-python -m scripts.reset          # seeds data/grok_exchange.db
+python -m scripts.reset          # seeds data/vintexchange.db
 uvicorn app.main:app --reload    # http://127.0.0.1:8000
 python -m scripts.demo           # four PASS lines
 python -m pytest -q              # full suite
@@ -120,7 +153,7 @@ refuses to start and names the missing variables. It never switches profile on i
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROFILE` | `offline` | `offline` or `connected` |
-| `DATABASE_URL` | `sqlite+aiosqlite:///data/grok_exchange.db` | Offline database |
+| `DATABASE_URL` | `sqlite+aiosqlite:///data/vintexchange.db` | Offline database |
 | `LLM_MODE` | `fake` | `fake`, `replay`, or `grok` |
 | `MARKET_MODE` | `fake` | `fake` or `tavily` |
 | `MERCHANT_TIMEOUT_SECONDS` | `8` | Per merchant agent call |
@@ -214,7 +247,7 @@ Run `python -m scripts.reset` first, then open `http://127.0.0.1:8000`.
 | 2:40 | Run `python -m pytest tests/invariant -v` | 20 contenders, 1 unit, 1 success. One key, one order |
 
 With Shopify connected, open the store admin at 1:20: the fill appears as a draft
-order with a £14 "Negotiated by Trading Agentic Commerce" discount. With PostHog connected,
+order with a £14 "Negotiated by Vint Exchange" discount. With PostHog connected,
 show the request → fill funnel and blocked attempts at 2:30.
 
 **Cut line:** if time runs short, set `NEGOTIATION_ENABLED=false`. There is one

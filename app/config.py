@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     )
 
     profile: Literal["offline", "connected"] = "offline"
-    database_url: str = f"{SQLITE_PREFIX}data/grok_exchange.db"
+    database_url: str = f"{SQLITE_PREFIX}data/vintexchange.db"
 
     llm_mode: Literal["fake", "replay", "grok"] = "fake"
     market_mode: Literal["fake", "tavily"] = "fake"

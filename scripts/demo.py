@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", type=Path,
                         help="explicit SQLite .db path (default: a temporary file)")
     args = parser.parse_args(argv)
-    print("Trading Agentic Commerce demo verifier "
+    print("Vint Exchange demo verifier "
           "(offline, deterministic agents, simulated payment)")
     if args.database is not None:
         return asyncio.run(run(validate_database_path(args.database, explicit=True)))

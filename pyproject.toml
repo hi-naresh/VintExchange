@@ -1,5 +1,5 @@
 [project]
-name = "grok-exchange"
+name = "vintexchange"
 version = "0.1.0"
 description = "Agentic-commerce demo: Grok proposes; deterministic code disposes."
 requires-python = ">=3.12"

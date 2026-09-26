@@ -86,7 +86,7 @@ def create_app(settings: Settings | None = None, repository: Repository | None =
             return app.state.services
 
     app = FastAPI(
-        title="Trading Agentic Commerce",
+        title="Vint Exchange",
         version="0.1.0",
         summary="Grok proposes; deterministic code disposes. Payment is simulated.",
         lifespan=lifespan,

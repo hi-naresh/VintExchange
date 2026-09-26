@@ -1,4 +1,4 @@
-# Grok Exchange Implementation Plan
+# VintExchange Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, aiosqlite, httpx, pytest, pytest-asyncio, Supabase/Postgres SQL and Realtime, Tavily Search, Next.js/TypeScript generated with v0, supabase-js 2.x, Vercel, and Railway.
 
-**Spec:** `docs/superpowers/specs/2026-09-26-grok-exchange-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-26-vintexchange-design.md`
 
 ## Global Constraints
 
@@ -98,7 +98,7 @@ README.md                              setup, demo, architecture, honesty
 
 ```toml
 [project]
-name = "grok-exchange"
+name = "vintexchange"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
@@ -156,7 +156,7 @@ Use `StrictInt` with `Field(ge=0)` for pence, `Field(gt=0)` for quantities,
 `ConfigDict(extra="forbid")` on input models, string enums for statuses/reasons,
 and an `after` validator on `MandateCreate` enforcing
 `max_per_order_pence <= budget_pence`. `Settings` defaults to
-`profile="offline"`, `database_url="sqlite+aiosqlite:///data/grok_exchange.db"`,
+`profile="offline"`, `database_url="sqlite+aiosqlite:///data/vintexchange.db"`,
 `llm_mode="fake"`, `merchant_timeout_seconds=8`, `negotiation_timeout_seconds=30`,
 and `max_rounds=3`. Connected profile validation requires Supabase URL/key and
 Grok base URL/API key.

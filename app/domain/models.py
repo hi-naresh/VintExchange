@@ -197,6 +197,24 @@ class CheckoutCommand(Command):
     idempotency_key: IdempotencyKey
 
 
+class AmendCommand(Command):
+    """Change a waiting order's limit (total) and/or quantity."""
+
+    max_price_pence: PositivePence | None = None
+    quantity: Quantity | None = None
+
+    @model_validator(mode="after")
+    def _something_to_change(self) -> AmendCommand:
+        if self.max_price_pence is None and self.quantity is None:
+            raise ValueError("give max_price_pence and/or quantity")
+        return self
+
+
+class RestockCommand(Command):
+    inventory_id: Identifier
+    quantity: Annotated[StrictInt, Field(gt=0, le=10_000)]
+
+
 class RepriceCommand(Command):
     inventory_id: Identifier
     price_pence: PositivePence
@@ -256,6 +274,7 @@ class RequestRecord(Record):
     deadline: str
     status: RequestStatus
     round: int
+    agent: str | None = None
     created_at: str
     updated_at: str
 

@@ -1,8 +1,8 @@
-# Grok Exchange — Product Design
+# VintExchange — Product Design
 
 ## Product intent
 
-Grok Exchange is a demoable agentic-commerce system built around one rule:
+VintExchange is a demoable agentic-commerce system built around one rule:
 **Grok proposes; deterministic code disposes.** Buyer and merchant agents may
 suggest requests, quotes, and counter-offers, but only typed application code
 may validate policy, mutate inventory, commit budget, or create an order.
@@ -24,7 +24,7 @@ interfaces.
 
 ### Offline demo profile
 
-- SQLite database stored in `data/grok_exchange.db`.
+- SQLite database stored in `data/vintexchange.db`.
 - Deterministic fake Grok responses, with optional prompt-hash replay cache.
 - Dashboard reads an API snapshot and polls for changes.
 - Starts without API keys or external services.
@@ -74,7 +74,7 @@ repository instance and cannot call mutation methods directly.
 ## Package layout
 
 ```text
-grok-exchange/
+vintexchange/
   app/
     api/                 FastAPI routes and dependency wiring
     agents/              buyer/merchant orchestration and LLM adapters

@@ -56,7 +56,7 @@ async def reset_connected(settings: Settings) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Reset Trading Agentic Commerce demo state.")
+    parser = argparse.ArgumentParser(description="Reset Vint Exchange demo state.")
     parser.add_argument("--database", type=Path, help="explicit SQLite .db path")
     parser.add_argument("--catalog", choices=["seed", "shopify"],
                         help="override CATALOG_SOURCE for this reset")

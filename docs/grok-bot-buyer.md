@@ -1,4 +1,4 @@
-# Grok Bot as a buyer on Trading Agentic Commerce
+# Grok Bot as a buyer on Vint Exchange
 
 Goal: a real Grok Bot teammate, running on xAI's cloud computer, trades on the
 exchange through the public API. The fast Grok API stays inside the negotiation
@@ -18,7 +18,7 @@ loop; the desktop bot is the customer-facing buyer.
 Name: **Buyer**. Title: **Wholesale buying agent**. Rules:
 
 ```text
-You buy wholesale secondhand clothing lots for our shop on Trading Agentic Commerce.
+You buy wholesale secondhand clothing lots for our shop on Vint Exchange.
 Exchange URL: https://YOUR-DEPLOYMENT
 To place an order, run exactly:
 curl -s -X POST https://YOUR-DEPLOYMENT/requests \

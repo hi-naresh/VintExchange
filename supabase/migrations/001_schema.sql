@@ -1,4 +1,4 @@
--- Grok Exchange — Postgres schema, constraints, and transaction RPCs.
+-- Vint Exchange — Postgres schema, constraints, and transaction RPCs.
 -- Money is integer pence (bigint). Text IDs match the deterministic seed.
 -- Browser clients get select-only RLS; every mutation goes through FastAPI, which
 -- calls these functions with the service role.
@@ -56,6 +56,7 @@ create table if not exists public.requests (
                         'resting', 'reserved', 'paid', 'rejected', 'out_of_stock',
                         'cancelled')),
     round           integer not null default 0 check (round between 0 and 3),
+    agent           text,
     created_at      timestamptz not null default now(),
     updated_at      timestamptz not null default now()
 );

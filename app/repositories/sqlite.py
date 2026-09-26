@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import sqlite3
 import statistics
@@ -60,9 +61,10 @@ from app.repositories.protocol import (
     RepositoryConflict,
 )
 
+log = logging.getLogger(__name__)
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 BUSY_TIMEOUT_MS = 5_000
-MAX_BUSY_RETRIES = 3
+MAX_BUSY_RETRIES = 8
 T = TypeVar("T")
 
 TABLES_IN_DELETE_ORDER = (
@@ -91,6 +93,11 @@ def _is_busy(error: sqlite3.OperationalError) -> bool:
 class SQLiteRepository:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
+        # SQLite allows one writer at a time. Serializing writers inside this process
+        # removes lock contention (and "database is locked" errors) under bursty
+        # agent traffic; guards still live in the SQL, so correctness never depends
+        # on this lock. Other processes are handled by busy_timeout + retries.
+        self._write_lock = asyncio.Lock()
 
     @classmethod
     async def connect(cls, path: str | Path) -> SQLiteRepository:
@@ -116,7 +123,7 @@ class SQLiteRepository:
         """Run `work` inside BEGIN IMMEDIATE, retrying busy conflicts briefly."""
         for attempt in range(1, MAX_BUSY_RETRIES + 1):
             try:
-                async with self._connection() as db:
+                async with self._write_lock, self._connection() as db:
                     await db.execute("BEGIN IMMEDIATE")
                     try:
                         result = await work(db)
@@ -128,7 +135,7 @@ class SQLiteRepository:
             except sqlite3.OperationalError as error:
                 if not _is_busy(error) or attempt == MAX_BUSY_RETRIES:
                     raise RepositoryConflict(f"database busy: {error}") from error
-                await asyncio.sleep(0.01 * attempt)
+                await asyncio.sleep(0.05 * attempt)
             except sqlite3.IntegrityError as error:
                 raise RepositoryConflict(str(error)) from error
         raise RepositoryConflict("unreachable")  # pragma: no cover
@@ -149,7 +156,28 @@ class SQLiteRepository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         async with self._connection() as db:
             await db.execute("PRAGMA journal_mode = WAL")
+            if await self._schema_is_outdated(db):
+                # Demo database from an older build: rebuild it (the app then reseeds).
+                log.warning("SQLite schema at %s is outdated; rebuilding demo data", self.path)
+                await db.execute("PRAGMA foreign_keys = OFF")
+                for table in TABLES_IN_DELETE_ORDER:
+                    await db.execute(f"DROP TABLE IF EXISTS {table}")  # noqa: S608
+                await db.execute("PRAGMA foreign_keys = ON")
             await db.executescript(SCHEMA_PATH.read_text())
+
+    @staticmethod
+    async def _schema_is_outdated(db: aiosqlite.Connection) -> bool:
+        row = await (await db.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'requests'"
+        )).fetchone()
+        if row is None:
+            return False  # fresh database
+        inventory = await (await db.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'inventory'"
+        )).fetchone()
+        sql = row[0] or ""
+        return ("agent" not in sql or "cancelled" not in sql
+                or inventory is None or "external_id" not in (inventory[0] or ""))
 
     async def reset(self) -> None:
         async def work(db: aiosqlite.Connection) -> None:
@@ -301,19 +329,32 @@ class SQLiteRepository:
             raise NotFound("inventory", inventory_id)
         return item
 
+    async def add_stock(self, inventory_id: str, quantity: int) -> InventoryRecord:
+        async def work(db: aiosqlite.Connection) -> None:
+            cursor = await db.execute("UPDATE inventory SET stock = stock + ? WHERE id = ?",
+                                      (quantity, inventory_id))
+            if cursor.rowcount != 1:
+                raise NotFound("inventory", inventory_id)
+        await self._transaction(work)
+        item = await self.get_inventory_item(inventory_id)
+        assert item is not None
+        return item
+
     # ------------------------------------------------------------------ requests
 
-    async def create_request(self, command: RFQCreate, *, mandate_id: str) -> RequestRecord:
+    async def create_request(self, command: RFQCreate, *, mandate_id: str,
+                             agent: str | None = None) -> RequestRecord:
         request_id = new_id("req")
         now = iso(utcnow())
 
         async def work(db: aiosqlite.Connection) -> None:
             await db.execute(
                 """INSERT INTO requests (id, mandate_id, query, category, max_price_pence,
-                   quantity, deadline, status, round, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', 0, ?, ?)""",
+                   quantity, deadline, status, round, agent, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'requested', 0, ?, ?, ?)""",
                 (request_id, mandate_id, command.query, command.category,
-                 command.max_price_pence, command.quantity, iso(command.deadline), now, now),
+                 command.max_price_pence, command.quantity, iso(command.deadline), agent,
+                 now, now),
             )
         await self._transaction(work)
         record = await self.get_request(request_id)
@@ -338,6 +379,21 @@ class SQLiteRepository:
         if record is None:
             raise NotFound("request", request_id)
         return record
+
+    async def amend_request(self, request_id: str, *, max_price_pence: int,
+                            quantity: int) -> RequestRecord | None:
+        async def work(db: aiosqlite.Connection) -> int:
+            cursor = await db.execute(
+                """UPDATE requests SET max_price_pence = ?, quantity = ?, updated_at = ?
+                   WHERE id = ? AND status IN ('requested', 'quoted', 'negotiating', 'resting')""",
+                (max_price_pence, quantity, iso(utcnow()), request_id),
+            )
+            return cursor.rowcount
+        changed = await self._transaction(work)
+        current = await self.get_request(request_id)
+        if current is None:
+            raise NotFound("request", request_id)
+        return current if changed == 1 else None
 
     async def cancel_request(self, request_id: str) -> RequestRecord | None:
         async def work(db: aiosqlite.Connection) -> int:
@@ -423,7 +479,7 @@ class SQLiteRepository:
     async def create_event(self, event: EventCreate) -> EventRecord:
         event_id = new_id("evt")
         now = iso(utcnow())
-        async with self._connection() as db:
+        async with self._write_lock, self._connection() as db:
             await db.execute(
                 """INSERT INTO events (id, created_at, type, request_id, payload, latency_ms,
                    stage) VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -749,9 +805,9 @@ class SQLiteRepository:
             )
             merchants = await rows("SELECT * FROM merchants ORDER BY id")
             inventory = await rows("SELECT * FROM inventory ORDER BY id")
-            requests = await rows(_newest("requests", 50))
-            quotes = await rows(_newest("quotes", 150))
-            orders = await rows(_newest("orders", 50))
+            requests = await rows(_newest("requests", 200))
+            quotes = await rows(_newest("quotes", 400))
+            orders = await rows(_newest("orders", 150))
             reports = await rows(_newest("exec_reports", 50))
             events = await rows(_newest("events", 400))
             paid = await rows("SELECT COUNT(*) AS n FROM orders WHERE status = 'paid'")

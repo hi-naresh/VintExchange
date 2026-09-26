@@ -86,3 +86,26 @@ def test_risk_gate_checks_mirror_policy_order():
 def test_disconnected_banner_retains_snapshot():
     assert "Disconnected from the exchange API" in JS
     assert "Showing the last snapshot" in JS
+
+
+def test_vint_exchange_views_and_order_controls():
+    soup = BeautifulSoup(HTML, "html.parser")
+    assert soup.title.string == "Vint Exchange"
+    for mode in ("shopper", "store", "market", "flow", "dev"):
+        assert soup.select_one(f"#tab-{mode}") and soup.select_one(f"#view-{mode}")
+    # Shopper can edit and cancel a waiting order.
+    assert '"/cancel"' in JS and '"/amend"' in JS
+    assert "Update order" in JS and "Cancel order" in JS
+    # Per-product order book with trading activity beside it.
+    for region in ("#product-list", "#ladder-asks", "#ladder-bids", "#spread", "#activity"):
+        assert soup.select_one(region)
+    # Developer docs cover the agent API.
+    for section in ("#doc-quick", "#doc-endpoints", "#doc-errors"):
+        assert soup.select_one(section)
+    assert "X-Agent-Name" in HTML
+
+
+def test_every_js_id_exists_in_the_page():
+    soup = BeautifulSoup(HTML, "html.parser")
+    for element_id in set(re.findall(r'\$\("([a-z0-9-]+)"\)', JS)):
+        assert soup.select_one("#" + element_id), element_id
