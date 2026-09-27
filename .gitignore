@@ -16,3 +16,4 @@ dashboard/.next/
 # Local artefacts
 Claude outputs/
 data/replay_cache.json
+.env*

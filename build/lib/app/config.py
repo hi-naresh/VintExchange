@@ -7,7 +7,6 @@ silently falls back from connected to offline.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -112,8 +111,6 @@ class Settings(BaseSettings):
     def sqlite_path(self) -> Path:
         raw = self.database_url.removeprefix(SQLITE_PREFIX)
         path = Path(raw)
-        if os.getenv("VERCEL") and not path.is_absolute():
-            return Path("/tmp") / path.name
         return path if path.is_absolute() else PROJECT_ROOT / path
 
     @property
